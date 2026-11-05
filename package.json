@@ -1,0 +1,11 @@
+{
+  "name": "slow-safari",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "three": "0.180.0"
+  },
+  "scripts": {
+    "build": "node scripts/build-worker.mjs"
+  }
+}

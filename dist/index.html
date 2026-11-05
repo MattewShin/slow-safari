@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#eae9da">
+<title>느린 초원 · Slow Safari</title><meta name="description" content="오늘은 초원의 작은 생명이 되어보세요. 랜덤한 동물로 태어나 바람을 듣고, 물가에서 쉬어가는 평화로운 3D 초원.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='10' fill='%235c6950'/%3E%3Cpath d='M9 24C6 12 15 6 25 7c0 11-6 17-16 17M10 24l10-11' fill='none' stroke='%23f5efdf' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<div id="world" aria-label="자연스러운 빛과 물결의 3D 초원, 바닥 터치·클릭 또는 키보드 방향키로 이동"></div>
+<div id="load"><span class="load-leaf">⌁</span><p>바람이 초원을 깨우는 중</p></div>
+<div id="fallback" hidden><h1>초원을 열 수 없어요</h1><p>3D 화면을 지원하는 브라우저에서 다시 방문해주세요.</p><button onclick="location.reload()">다시 열기</button></div>
+<div class="vignette"></div>
+<header class="header">
+<a class="brand" href="./" aria-label="느린 초원 처음으로"><svg viewBox="0 0 32 32" fill="none"><path d="M8 25C4 12 15 5 26 6c0 13-7 20-18 19ZM8 25 21 12M15 18l-1-6M15 18l6 1" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg><span>느린 초원<small>SLOW SAFARI</small></span></a>
+
+<div class="header-actions"><button id="sound" class="icon-btn" aria-label="자연의 소리 켜기" title="자연의 소리"><svg viewBox="0 0 24 24" fill="none"><path d="m11 5-5 4H3v6h3l5 4V5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path id="soundwaves" d="m16 9 5 6m0-6-5 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button><button id="settings" class="icon-btn" aria-label="초원 설정" title="초원 설정"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 17h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="9" cy="7" r="2.5" fill="var(--cream)" stroke="currentColor" stroke-width="1.5"/><circle cx="15" cy="17" r="2.5" fill="var(--cream)" stroke="currentColor" stroke-width="1.5"/></svg></button></div>
+</header>
+<main id="welcome" class="welcome">
+<div class="intro-label"><span></span> 잠시, 일상 밖으로</div>
+<h1>아무것도 하지 않아도<br>괜찮은 곳.</h1>
+<p class="intro-copy">오늘은 초원의 작은 생명이 되어보세요.<br>어디로 가든, 얼마나 머물든 자유로워요.</p>
+<button id="birth" class="birth-btn" disabled><svg viewBox="0 0 24 24" fill="none"><path d="M4 17c4 0 3-10 8-10s4 10 8 10M8 17h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="m18 4 1-2m2 5 2-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><span>초원에서 태어나기</span><span class="arrow">↗</span></button>
+<div class="birth-note">14종의 동물 중 하나로 만나요</div>
+</main>
+<div class="world-note" id="worldNote"><span class="note-line"></span><span>모두가 평화로운, 우리의 작은 초원</span></div>
+<div class="corner-caption"><span class="live-dot"></span> A LITTLE WILD, A LITTLE SLOW.</div>
+<div id="gameUI" hidden>
+<div class="identity"><div id="animalIcon" class="animal-icon"></div><div><small>오늘의 나는</small><strong id="animalName">느긋한 기린</strong></div><button id="rebirth" aria-label="다른 동물로 다시 태어나기" title="다시 태어나기">↻</button></div>
+<div id="meadowStatus" class="meadow-status" role="status">함께 걷는 초원에 연결 중</div>
+<div id="playerTag" class="player-tag">나 <span>·</span> <b id="playerSpecies">기린</b></div>
+<div class="companions"><span class="live-dot"></span> 초원의 친구들 <b id="friendCount">17</b><span class="npc-label">자연 속 동물들</span></div>
+<div class="mobile-hint" id="moveHint">가고 싶은 풀밭을 톡 터치해 보세요</div>
+<div class="keyboard-hint"><span>W A S D</span> 걷기 · 바닥 클릭으로 이동 · 드래그로 시점</div>
+<div class="actions" id="actions"><button id="graze" class="action-btn" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none"><path d="M12 21V10M12 16C5 16 4 11 4 7c6 0 8 4 8 9ZM12 12c0-6 4-9 8-9 0 6-3 10-8 9Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 21h16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>풀 뜯기</span></button><i></i><button id="rest" class="action-btn"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19h16M7 16V8m10 8V8M7 13h10M6 6h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="m10 3 2-1 2 1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span>쉬어가기</span></button><i></i><button id="drink" class="action-btn"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3s-6 7-6 11a6 6 0 0 0 12 0c0-4-6-11-6-11Z" stroke="currentColor" stroke-width="1.5"/><path d="M9 15c0 2 1 3 3 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span>물 마시기</span></button><button id="speciesAction" class="action-btn" aria-pressed="false" hidden><svg viewBox="0 0 24 24" fill="none"><path d="M12 2v20M2 12h20M5 5l14 14M19 5 5 19" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><span></span></button></div>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<dialog id="birthDialog" class="birth-dialog"><div class="dialog-eyebrow">HELLO, LITTLE ONE</div><div id="revealIcon" class="reveal-icon"></div><h2>오늘은 <span id="revealSpecies">기린</span>으로 태어났어요.</h2><p id="revealCopy">조금 높은 곳에서, 조금 느긋하게.<br>당신의 속도로 초원을 만나보세요.</p><button id="begin" class="primary">나의 초원으로 <span>→</span></button><small>여기에서는 모두가 친구예요.</small></dialog>
+<dialog id="settingsDialog" class="settings-dialog"><div class="dialog-top"><span class="dialog-eyebrow">MAKE YOURSELF AT HOME</span><button class="close" aria-label="설정 닫기">×</button></div><h2>나에게 맞는 초원</h2><div class="setting-row"><div><strong>초원의 배경</strong></div><div class="segmented" role="group" aria-label="초원의 배경"><button id="liveTime" class="selected" aria-pressed="true">실시간</button><button id="day" aria-pressed="false">낮</button><button id="nightTime" aria-pressed="false">밤</button></div></div>
+<div class="setting-row"><div><strong>상하 반전</strong><small>드래그 시 위아래 시점 방향 바꾸기</small></div><button id="invertVertical" class="toggle" role="switch" aria-checked="false" aria-label="상하 반전"><span></span></button></div>
+<div class="setting-row"><div><strong>좌우 반전</strong><small>드래그 시 왼쪽·오른쪽 시점 방향 바꾸기</small></div><button id="invertHorizontal" class="toggle" role="switch" aria-checked="false" aria-label="좌우 반전"><span></span></button></div>
+<div class="setting-row"><div><strong>자연의 소리</strong><small>낮의 새소리, 밤의 풀벌레 소리와 가끔 흐르는 피아노</small></div><button id="audioToggle" class="toggle" role="switch" aria-checked="false" aria-label="자연의 소리"><span></span></button></div><div class="setting-row"><div><strong>가벼운 화면</strong><small>배터리를 아끼고, 더 편안하게</small></div><button id="qualityToggle" class="toggle" role="switch" aria-checked="false" aria-label="가벼운 화면"><span></span></button></div><div class="help-note">모바일 · 풀밭 한 번 터치로 걷기, 같은 곳 두 번 터치로 달리기<br>배경 한 손가락 드래그 · 상하좌우 시점 회전<br>배경 두 손가락 벌리기 / 오므리기 · 거리 조절<br>컴퓨터 · 바닥 클릭으로 걷기, 두 번 클릭으로 달리기 · WASD / 방향키로 이동 · Shift로 달리기, 드래그로 시점, 휠로 거리 조절<br>15초 동안 조작하지 않으면 풍경을 바라봐요.<br>이동하거나 화면을 만지면 이전 시점으로 돌아와요.<br>풀 뜯기를 누르면 제자리에서 풀을 먹어요.<br>물 마시기를 누르면 물가로 걸어가요.</div><p class="prototype-note">주변 동물들은 자동으로 움직여요.</p></dialog>
+<script type="module" src="./app.js"></script>
+</body></html>

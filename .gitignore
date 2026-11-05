@@ -1,0 +1,4 @@
+node_modules/
+.openai/*local*
+.DS_Store
+/dist/server/
