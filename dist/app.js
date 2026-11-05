@@ -727,14 +727,86 @@ const critters=[];
 [[-1,5],[1,7],[-6,10],[10,3],[14,-11],[-11,-5]].forEach(([x,z],i)=>critters.push(smallAnimal('rabbit',x,z,i)));
 [[-10,-7],[-14,-11],[16,-14],[22,8]].forEach(([x,z],i)=>critters.push(smallAnimal('squirrel',x,z,i)));
 $('friendCount').textContent=npcs.length+critters.length;
-function animateCritters(dt,t){
+function animateCritters(dt,t,playerMoving=false){
  for(const a of critters){
-  const d=a.userData;d.timer-=dt;
-  if(d.timer<=0){d.timer=4+rand()*7;const x=d.home.x+(rand()-.5)*10,z=d.home.z+(rand()-.5)*10;if(canWalk(x,z)&&lineWalk(a.position,{x,z}))d.target.set(x,0,z);}
+  const d=a.userData,playerDistance=Math.hypot(a.position.x-player.position.x,a.position.z-player.position.z);d.timer-=dt;
+  const rainShelter=weather.rain>.28,night=lightTarget.phase==='night';
+  if(playerMoving&&playerDistance<4.8){
+   const dx=a.position.x-player.position.x,dz=a.position.z-player.position.z,length=Math.max(.1,Math.hypot(dx,dz));
+   const x=a.position.x+dx/length*6,z=a.position.z+dz/length*6;
+   if(canWalk(x,z)){d.target.set(x,0,z);d.timer=2;}
+  }else if(rainShelter&&d.ecoMode!=='shelter'){
+   const shelter=nearestShelterPoint(a.position.x,a.position.z);
+   if(shelter){d.target.set(shelter.x,0,shelter.z);d.ecoMode='shelter';d.timer=7;}
+  }else if(!rainShelter&&d.ecoMode==='shelter'){d.ecoMode='roam';d.timer=-1;}
+  if(d.timer<=0){d.timer=(night?7:4)+rand()*7;const x=d.home.x+(rand()-.5)*10,z=d.home.z+(rand()-.5)*10;if(canWalk(x,z)&&lineWalk(a.position,{x,z}))d.target.set(x,0,z);}
   const dx=d.target.x-a.position.x,dz=d.target.z-a.position.z,distance=Math.hypot(dx,dz);let moving=false;
-  if(distance>.16){const amount=Math.min(d.speed*dt,distance),nx=a.position.x+dx/distance*amount,nz=a.position.z+dz/distance*amount;if(canWalk(nx,nz)){a.position.x=nx;a.position.z=nz;moving=true;const turn=THREE.MathUtils.euclideanModulo(Math.atan2(dx,dz)-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=turn*Math.min(dt*7,1);}}
-  animateSmallPlayer(a,dt,t,moving,false,false,!moving&&Math.sin(t*.45+d.phase)>.35);
+  const resting=night&&!rainShelter&&playerDistance>5&&Math.sin(t*.12+d.phase)>.15;
+  if(distance>.16&&!resting){const amount=Math.min(d.speed*dt*(playerDistance<5?1.45:1),distance),nx=a.position.x+dx/distance*amount,nz=a.position.z+dz/distance*amount;if(canWalk(nx,nz)){a.position.x=nx;a.position.z=nz;moving=true;const turn=THREE.MathUtils.euclideanModulo(Math.atan2(dx,dz)-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=turn*Math.min(dt*7,1);}}
+  animateSmallPlayer(a,dt,t,moving,resting,false,!moving&&!resting&&!rainShelter&&Math.sin(t*.45+d.phase)>.35);
  }
+}
+const nocturnalSpecies=new Set(['hedgehog','fennec']);
+const timidSpecies=new Set(['gazelle','zebra','rabbit','squirrel','guineaPig','chinchilla','hedgehog','meerkat','fennec']);
+function nearestShelterPoint(x,z){
+ let best=null,bestDistance=Infinity;
+ for(const grove of groves)for(let i=0;i<10;i++){
+  const a=Math.atan2(z-grove.z,x-grove.x)+(i-4.5)*.34;
+  const px=grove.x+Math.cos(a)*grove.rx*.58,pz=grove.z+Math.sin(a)*grove.rz*.58,distance=Math.hypot(px-x,pz-z);
+  if(distance<bestDistance&&distance<95&&canWalk(px,pz)){best={x:px,z:pz};bestDistance=distance;}
+ }
+ return best;
+}
+function nearestEcologyShore(x,z){
+ let best=null,bestDistance=Infinity;
+ for(const water of waterBodies)for(let i=0;i<14;i++){
+  const a=i/14*Math.PI*2,px=water.x+Math.cos(a)*water.rx*1.17,pz=water.z+Math.sin(a)*water.rz*1.17,distance=Math.hypot(px-x,pz-z);
+  if(distance<bestDistance&&distance<82&&canWalk(px,pz)){best={x:px,z:pz,faceX:water.x,faceZ:water.z};bestDistance=distance;}
+ }
+ return best;
+}
+function chooseHerdTarget(a,index){
+ const d=a.userData,companions=npcs.filter(other=>other!==a&&other.userData.type===d.type&&Math.hypot(other.position.x-a.position.x,other.position.z-a.position.z)<55);
+ const anchor=companions[0]?.userData.target||companions[0]?.position||d.home||a.position;
+ const angle=(index*2.39996+d.phase)%(Math.PI*2),radius=companions.length?3.2+(index%3)*1.7:7+rand()*8;
+ const x=anchor.x+Math.cos(angle)*radius,z=anchor.z+Math.sin(angle)*radius;
+ if(canWalk(x,z)&&lineWalk(a.position,{x,z}))d.target.set(x,0,z);
+}
+function animateNpcEcology(a,index,dt,t,playerMoving){
+ const d=a.userData,distanceToPlayer=Math.hypot(a.position.x-player.position.x,a.position.z-player.position.z);
+ a.visible=distanceToPlayer<150;if(distanceToPlayer>150)return;
+ d.home??={x:a.position.x,z:a.position.z};d.ecoMode??='roam';d.ecoRain??=false;d.timer-=dt;
+ const raining=weather.rain>.27,night=lightTarget.phase==='night',nocturnal=nocturnalSpecies.has(d.type);
+ const waterHour=!night&&((environmentMinutes>=390&&environmentMinutes<510)||(environmentMinutes>=990&&environmentMinutes<1080)||(Math.floor(t/80)+index)%11===0);
+ if(raining!==d.ecoRain){d.ecoRain=raining;d.timer=-1;}
+ if(playerMoving&&timidSpecies.has(d.type)&&distanceToPlayer<(d.type==='zebra'||d.type==='gazelle'?8:6)){
+  const dx=a.position.x-player.position.x,dz=a.position.z-player.position.z,length=Math.max(.1,Math.hypot(dx,dz));
+  const x=a.position.x+dx/length*10,z=a.position.z+dz/length*10;
+  if(canWalk(x,z)){d.target.set(x,0,z);d.ecoMode='flee';d.timer=2.5;}
+ }else if(raining&&d.ecoMode!=='shelter'){
+  const shelter=nearestShelterPoint(a.position.x,a.position.z);
+  if(shelter){d.target.set(shelter.x,0,shelter.z);d.ecoMode='shelter';d.timer=8+rand()*5;}
+ }else if(!raining&&waterHour&&d.ecoMode!=='water'&&d.timer<0){
+  const shore=nearestEcologyShore(a.position.x,a.position.z);
+  if(shore){d.target.set(shore.x,0,shore.z);d.waterFace=shore;d.ecoMode='water';d.timer=12+rand()*8;}
+ }else if(d.timer<0){
+  d.timer=(night===nocturnal?4:8)+rand()*(night===nocturnal?7:12);d.ecoMode='roam';chooseHerdTarget(a,index);
+ }
+ const dx=d.target.x-a.position.x,dz=d.target.z-a.position.z,dist=Math.hypot(dx,dz);
+ const reached=dist<.34,drinking=d.ecoMode==='water'&&reached&&!raining;
+ const resting=(!nocturnal&&night&&d.ecoMode!=='flee')||(nocturnal&&!night&&d.ecoMode==='roam')||(d.ecoMode==='shelter'&&reached)||(d.isRest&&Math.sin(t*.1+d.phase)>.55);
+ const curious=!timidSpecies.has(d.type)&&distanceToPlayer>4&&distanceToPlayer<12&&!playerMoving&&!raining;
+ let mv=false;
+ if(dist>.25&&!resting&&!drinking){
+  const speed=d.ecoMode==='flee'?1.25:d.ecoMode==='shelter'?.82:(night===nocturnal?.78:.58),nx=a.position.x+dx/dist*dt*speed,nz=a.position.z+dz/dist*dt*speed;
+  if(canWalk(nx,nz)){a.position.x=nx;a.position.z=nz;mv=true;const target=Math.atan2(dx,dz),delta=THREE.MathUtils.euclideanModulo(target-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=delta*Math.min(dt*3.5,1);}
+ }else if(drinking&&d.waterFace){
+  const target=Math.atan2(d.waterFace.faceX-a.position.x,d.waterFace.faceZ-a.position.z),delta=THREE.MathUtils.euclideanModulo(target-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=delta*Math.min(dt*2.5,1);
+ }else if(curious){
+  const target=Math.atan2(player.position.x-a.position.x,player.position.z-a.position.z),delta=THREE.MathUtils.euclideanModulo(target-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=delta*Math.min(dt*1.9,1);
+ }
+ const grazing=!mv&&!resting&&!drinking&&!raining&&Math.sin(t*.35+d.phase)>.5;
+ animateAnimal(a,dt,t,mv,resting,drinking,grazing);
 }
 const info={giraffe:{name:'느긋한 기린',copy:'조금 높은 곳에서, 조금 느긋하게.<br>당신의 속도로 초원을 만나보세요.'},zebra:{name:'다정한 얼룩말',copy:'누구와도 똑같지 않은 나만의 무늬.<br>발길이 닿는 곳이 오늘의 여행이에요.'},gazelle:{name:'사뿐한 가젤',copy:'풀잎 사이를 사뿐사뿐.<br>마음이 가는 곳에서 잠시 쉬어가세요.'},rabbit:{name:'보드라운 토끼',copy:'긴 귀에 바람을 담고, 폴짝폴짝.<br>풀잎 가까이에서 작은 쉼을 찾아봐요.'},squirrel:{name:'종종걸음 다람쥐',copy:'포근한 꼬리와 함께 숲 그늘로.<br>작은 발걸음에도 넓은 세상이 펼쳐져요.'}};
 function animalSVG(type){
@@ -1016,6 +1088,61 @@ for(let i=0;i<18;i++){
  sprite.userData.originX=sprite.position.x;
  lakeMist.add(sprite);
 }
+// Low meadow fog, light rain and a faint post-rain rainbow make weather feel
+// present without turning the quiet meadow into a storm scene.
+const fieldMistMaterial=new THREE.SpriteMaterial({map:mistTexture,color:0xd7dfdc,transparent:true,opacity:0,depthWrite:false});
+const fieldMist=new THREE.Group();fieldMist.name='low-meadow-mist';fieldMist.visible=false;scene.add(fieldMist);
+for(let i=0;i<24;i++){
+ const a=i*2.39996,r=10+(i%6)*8;
+ const sprite=new THREE.Sprite(fieldMistMaterial);
+ sprite.position.set(Math.cos(a)*r,.65+(i%3)*.28,Math.sin(a)*r);
+ sprite.scale.set(18+(i%5)*5,2.2+(i%3)*.7,1);
+ sprite.userData.angle=a;sprite.userData.radius=r;sprite.userData.drift=(i%2?1:-1)*(.16+(i%4)*.025);
+ fieldMist.add(sprite);
+}
+const rainDropCount=640,rainPositions=new Float32Array(rainDropCount*6),rainSeeds=[];
+for(let i=0;i<rainDropCount;i++)rainSeeds.push({x:rand(),y:rand(),z:rand(),speed:.78+rand()*.58});
+const rainGeometry=new THREE.BufferGeometry();rainGeometry.setAttribute('position',new THREE.BufferAttribute(rainPositions,3));
+const rainMaterial=new THREE.LineBasicMaterial({color:0xbfd4dc,transparent:true,opacity:0,depthWrite:false});
+const rainField=new THREE.LineSegments(rainGeometry,rainMaterial);rainField.name='gentle-rain';rainField.visible=false;rainField.frustumCulled=false;scene.add(rainField);
+const rainbow=new THREE.Group();rainbow.name='after-rain-rainbow';rainbow.visible=false;skyDome.add(rainbow);
+[0xe87975,0xefa668,0xf1d477,0x93c889,0x73b9c6,0x8199d1].forEach((color,index)=>{
+ const points=[],radius=49-index*.62;
+ for(let i=0;i<=72;i++){const a=i/72*Math.PI;points.push(new THREE.Vector3(Math.cos(a)*radius,Math.sin(a)*radius-10,-148-index*.08));}
+ const geometry=new THREE.BufferGeometry().setFromPoints(points);
+ const material=new THREE.LineBasicMaterial({color,transparent:true,opacity:0,depthWrite:false,fog:false});
+ rainbow.add(new THREE.Line(geometry,material));
+});
+const weather={rain:0,rainTarget:0,fog:0,fogTarget:0,afterRain:0,afterRainTarget:0};
+let environmentMinutes=720;
+function animateWeather(dt,t){
+ weather.rain=THREE.MathUtils.damp(weather.rain,weather.rainTarget,.55,dt);
+ weather.fog=THREE.MathUtils.damp(weather.fog,weather.fogTarget,.34,dt);
+ weather.afterRain=THREE.MathUtils.damp(weather.afterRain,weather.afterRainTarget,.32,dt);
+ rainField.visible=weather.rain>.015;rainMaterial.opacity=.46*weather.rain;
+ if(rainField.visible){
+  const radius=lightGraphics?45:68,ceiling=34,active=lightGraphics?280:rainDropCount;
+  rainGeometry.setDrawRange(0,active*2);
+  for(let i=0;i<active;i++){
+   const seed=rainSeeds[i],fall=(seed.y+t*seed.speed*.72)%1;
+   const x=player.position.x+(seed.x-.5)*radius*2,z=player.position.z+(seed.z-.5)*radius*2;
+   const ground=height(x,z),y=ground+1+(1-fall)*ceiling,j=i*6;
+   rainPositions[j]=x;rainPositions[j+1]=y;rainPositions[j+2]=z;
+   rainPositions[j+3]=x+.07;rainPositions[j+4]=Math.max(ground,y-(.65+seed.speed*.75));rainPositions[j+5]=z+.03;
+  }
+  rainGeometry.attributes.position.needsUpdate=true;
+ }
+ fieldMistMaterial.opacity=.105*weather.fog;fieldMist.visible=weather.fog>.015;
+ if(fieldMist.visible)fieldMist.children.forEach((sprite,i)=>{
+  const a=sprite.userData.angle+t*sprite.userData.drift*.018,r=sprite.userData.radius;
+  sprite.position.set(player.position.x+Math.cos(a)*r,height(player.position.x+Math.cos(a)*r,player.position.z+Math.sin(a)*r)+.5+(i%3)*.22,player.position.z+Math.sin(a)*r);
+ });
+ const rainbowOpacity=weather.afterRain*(lightTarget.phase==='day'?1:0);
+ rainbow.visible=rainbowOpacity>.01;
+ rainbow.children.forEach((arc,i)=>arc.material.opacity=rainbowOpacity*(.19-i*.012));
+ terrainMaterial.roughness=THREE.MathUtils.damp(terrainMaterial.roughness,THREE.MathUtils.lerp(.88,.48,weather.rain+weather.afterRain*.35),1.2,dt);
+ waterMat.opacity=THREE.MathUtils.damp(waterMat.opacity,THREE.MathUtils.lerp(.94,.985,weather.rain),1.3,dt);
+}
 const meteorGeometry=new THREE.BufferGeometry();
 const meteorVertices=new Float32Array(6);
 meteorGeometry.setAttribute('position',new THREE.BufferAttribute(meteorVertices,3));
@@ -1057,11 +1184,21 @@ function animateRareScenery(dt,t){
 }
 function syncEnvironment(now=new Date()){
  const {date,minutes}=koreanClock(now);
+ environmentMinutes=minutes;
  const night=backgroundMode==='night'||(backgroundMode==='live'&&(minutes<360||minutes>=1080));
  const phase=night?'night':'day';
  const live=backgroundMode==='live';
  const seed=scenerySeed(date);
- mistTarget=live&&seed%5<2?.25*THREE.MathUtils.smoothstep(minutes,315,335)*(1-THREE.MathUtils.smoothstep(minutes,385,405)):0;
+ const dawn=live*THREE.MathUtils.smoothstep(minutes,300,340)*(1-THREE.MathUtils.smoothstep(minutes,420,465));
+ // A calm 24-minute weather cycle. The calendar seed keeps it synchronized
+ // between visitors while each shower eases in and out instead of switching.
+ const seconds=minutes*60+now.getUTCSeconds(),weatherCycle=(seconds+seed%1200)%1440;
+ const shower=live*THREE.MathUtils.smoothstep(weatherCycle,360,470)*(1-THREE.MathUtils.smoothstep(weatherCycle,720,860));
+ const clearing=live*THREE.MathUtils.smoothstep(weatherCycle,760,900)*(1-THREE.MathUtils.smoothstep(weatherCycle,1120,1360));
+ weather.rainTarget=shower*.72;
+ weather.fogTarget=THREE.MathUtils.clamp(dawn*.72+shower*.16,0,1);
+ weather.afterRainTarget=clearing*.82;
+ mistTarget=THREE.MathUtils.clamp(dawn*.30+shower*.07,0,.34);
  const nightDate=minutes<360?koreanClock(new Date(now.getTime()-86400000)).date:date;
  meteorSeed=scenerySeed(nightDate);
  meteorNight=live&&night&&meteorSeed%7<3;
@@ -1077,7 +1214,8 @@ function syncEnvironment(now=new Date()){
   direct:THREE.MathUtils.lerp(start.direct,end.direct,blend),
   ambient:THREE.MathUtils.lerp(start.ambient,end.ambient,blend),
   fog:night?.0021:.0018,
-  starlight:dusk?THREE.MathUtils.smoothstep(minutes,1075,1095):Number(night)
+  starlight:dusk?THREE.MathUtils.smoothstep(minutes,1075,1095):Number(night),
+  cloudCount:shower>.08?11:3
  });
  const color=new THREE.Color();
  for(const key of ['top','horizon','cloud','sun','hemi']){
@@ -1089,9 +1227,10 @@ function syncEnvironment(now=new Date()){
 }
 function animateEnvironment(dt,t){
  const target=lightTarget,k=1-Math.exp(-dt*1.1);
- skyUniforms.topColor.value.lerp(target.top,k);skyUniforms.horizonColor.value.lerp(target.horizon,k);scene.fog.color.lerp(target.horizon,k);scene.fog.density=THREE.MathUtils.lerp(scene.fog.density,target.fog,k);skyUniforms.cloudColor.value.lerp(target.cloud,k);skyUniforms.sunColor.value.lerp(target.sun,k);
+ animateWeather(dt,t);
+ skyUniforms.topColor.value.lerp(target.top,k);skyUniforms.horizonColor.value.lerp(target.horizon,k);scene.fog.color.lerp(target.horizon,k);scene.fog.density=THREE.MathUtils.lerp(scene.fog.density,target.fog+weather.fog*.00145+weather.rain*.00062,k);skyUniforms.cloudColor.value.lerp(target.cloud,k);skyUniforms.sunColor.value.lerp(target.sun,k);
  skyUniforms.nightMix.value=THREE.MathUtils.lerp(skyUniforms.nightMix.value,target.starlight,k);
- sun.color.lerp(target.sun,k);hemi.color.lerp(target.hemi,k);sun.intensity=THREE.MathUtils.lerp(sun.intensity,target.direct,k);hemi.intensity=THREE.MathUtils.lerp(hemi.intensity,target.ambient,k);sun.target.position.set(player.position.x,0,player.position.z);sun.position.set(player.position.x+target.light.x*.42,Math.max(24,target.light.y*.7),player.position.z+target.light.z*.42);
+ sun.color.lerp(target.sun,k);hemi.color.lerp(target.hemi,k);sun.intensity=THREE.MathUtils.lerp(sun.intensity,target.direct*(1-weather.rain*.48),k);hemi.intensity=THREE.MathUtils.lerp(hemi.intensity,target.ambient*(1-weather.rain*.16),k);sun.target.position.set(player.position.x,0,player.position.z);sun.position.set(player.position.x+target.light.x*.42,Math.max(24,target.light.y*.7),player.position.z+target.light.z*.42);
  skySun.position.lerp(target.light,k);skyUniforms.sunDirection.value.copy(skySun.position).normalize();skySun.visible=target.phase!=='night'&&target.cloudCount<8;
  stars.material.opacity=THREE.MathUtils.lerp(stars.material.opacity,target.starlight*(target.cloudCount>=8?.27:.9),k);
  stars.visible=target.starlight>0;
@@ -1119,7 +1258,7 @@ function noiseLayer({frequency,type='lowpass',duration,texture,pan=0}){
    brown=.987*brown+.013*white;
    const swell=.72+.15*Math.sin(time*3+channel)+.11*Math.cos(time*7+channel*.5);
    const grains=.68+.22*Math.sin(time*17+channel)*Math.sin(time*29);
-   const signal=texture==='wind'?brown*3+pink*.15:texture==='leaves'?pink*.65+white*.21:pink*.8+white*.4;
+   const signal=texture==='wind'?brown*3+pink*.15:texture==='leaves'?pink*.65+white*.21:texture==='rain'?white*.46+pink*.38:pink*.8+white*.4;
    samples[i]=signal*swell*(texture==='leaves'?grains:1);
   }
  }
@@ -1155,6 +1294,7 @@ function updateLocationAudio(){
  ambience.leaves.gain.gain.setTargetAtTime((.08+forest*.40)*gust,now,.45);
  ambience.stream.gain.gain.setTargetAtTime(Math.max(shore*.37,river*.46)*(1-waterfall*.5),now,.45);
  ambience.falls.gain.gain.setTargetAtTime(waterfall**1.55*.65,now,.45);
+ ambience.rain.gain.gain.setTargetAtTime(weather.rain*(.38+forest*.16),now,.38);
  if(ambience.falls.stereo){
   const dx=falls.x-x,dz=falls.z-z;
   const pan=(dx*Math.cos(angle)-dz*Math.sin(angle))/Math.max(5,Math.hypot(dx,dz));
@@ -1172,6 +1312,7 @@ async function toggleAudio(){
    ambience.leaves=noiseLayer({frequency:1700,type:'bandpass',duration:11,texture:'leaves',pan:-.20});
    ambience.stream=noiseLayer({frequency:1150,type:'bandpass',duration:17,texture:'water',pan:.14});
    ambience.falls=noiseLayer({frequency:1550,duration:19,texture:'water'});
+   ambience.rain=noiseLayer({frequency:4200,type:'lowpass',duration:14,texture:'rain',pan:-.06});
   }
   await audioCtx.resume();
   audioOn=!audioOn;
@@ -1215,6 +1356,13 @@ function chirp(){
  const time=audioCtx.currentTime+.025;
  const pan=(Math.random()-.5)*1.4;
  const {x,z}=player.position;
+ if(weather.rain>.38){
+  // Birds grow quiet in rain; soft frogs and a low distant call take over.
+  if(nearestWaterDistance(x,z)<2.2||riverDistance(x,z)<10){
+   for(let i=0;i<3;i++)natureCall(time+i*.31,155+i*13,112,.22,.022+weather.rain*.012,-pan,'triangle');
+  }
+  return;
+ }
  if(lightTarget.phase==='night'){
   const pitch=3900+Math.random()*750;
   for(let i=0;i<4;i++)natureCall(time+i*.115,pitch,pitch*.96,.061,.012,pan);
@@ -1636,10 +1784,10 @@ function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta()
  }
  animateSpeciesAction(t,dt);
  animateMeadowPeers(dt,t);
- npcs.forEach((a,i)=>{const d=a.userData;const distanceToPlayer=Math.hypot(a.position.x-player.position.x,a.position.z-player.position.z);a.visible=distanceToPlayer<150;if(distanceToPlayer>150)return;d.timer-=dt;let mv=false;if(d.timer<0){d.timer=6+rand()*9;const x=a.position.x+(rand()-.5)*12,z=a.position.z+(rand()-.5)*12;if(canWalk(x,z)&&Math.abs(x-(d.home?.x??0))<32&&Math.abs(z-(d.home?.z??0))<32)d.target.set(x,0,z);}const dx=d.target.x-a.position.x,dz=d.target.z-a.position.z,dist=Math.hypot(dx,dz);if(dist>.25&&!d.isRest){const nx=a.position.x+dx/dist*dt*.6,nz=a.position.z+dz/dist*dt*.6;if(canWalk(nx,nz)){a.position.x=nx;a.position.z=nz;mv=true;const target=Math.atan2(dx,dz),delta=THREE.MathUtils.euclideanModulo(target-a.rotation.y+Math.PI,Math.PI*2)-Math.PI;a.rotation.y+=delta*Math.min(dt*3,1);}}animateAnimal(a,dt,t,mv,d.isRest,false,!mv&&!d.isRest&&Math.sin(t*.35+d.phase)>.5);});
- animateCritters(dt,t);animateWaterfall(t);
+ npcs.forEach((a,i)=>animateNpcEcology(a,i,dt,t,moving));
+ animateCritters(dt,t,moving);animateWaterfall(t);
 
- birds.forEach((b,i)=>{const a=t*.045+i*1.25;b.position.set(Math.cos(a)*27,12+Math.sin(a*2+i)*2,Math.sin(a)*24-14);b.rotation.y=-a;b.children.forEach((w,j)=>w.rotation.z=(j?1:-1)*(1.1+Math.sin(t*3+i)*.3));});
+ birds.forEach((b,i)=>{const a=t*.045+i*1.25;b.visible=lightTarget.phase!=='night'&&weather.rain<.72;b.position.set(player.position.x+Math.cos(a)*27,12+height(player.position.x,player.position.z)+Math.sin(a*2+i)*2,player.position.z+Math.sin(a)*24-14);b.rotation.y=-a;b.children.forEach((w,j)=>w.rotation.z=(j?1:-1)*(1.1+Math.sin(t*3+i)*.3));});
  ripples.forEach((r,i)=>{const s=(r.userData.lake?1.6:1)+((t*.13+i*.27)%1)*(r.userData.lake?2.5:2);r.scale.set(s,s*.58,1);});
  if(playing){
   const view=playerView(player),pitch=overview?.8:viewPitch,radius=view.radius*viewZoom*(overview?1.9:1);
