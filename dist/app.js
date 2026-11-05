@@ -670,7 +670,24 @@ function playerView(a){
  const spec=newAnimals[a.userData.type];
  if(spec)return {eye:.66*spec.scale,tag:(.95+spec.ear*.6)*spec.scale,radius:Math.max(mobile()?8.5:7.5,4.9*spec.scale)};
  return a.userData.type==='giraffe'?{eye:2.9,tag:4.6,radius:mobile()?19:17}:isSmall(a)?{eye:.85,tag:a.userData.type==='rabbit'?1.5:1.65,radius:mobile()?8.5:7.5}:{eye:1.7,tag:3.05,radius:mobile()?19:17};}
-let player=animal('giraffe',6,6);player.rotation.y=-.7;
+const startPointCandidates=[
+ {x:6,z:6,name:'중앙 초원'},{x:-66,z:-58,name:'서쪽 숲길'},{x:71,z:61,name:'동쪽 언덕'},
+ {x:-112,z:112,name:'북서 초원'},{x:135,z:92,name:'호숫가 초원'},{x:-168,z:-126,name:'남서 들판'},
+ {x:208,z:-188,name:'남동 평원'},{x:-226,z:214,name:'북서 숲 가장자리'},{x:264,z:54,name:'동쪽 초원'},
+ {x:-92,z:262,name:'북쪽 들판'},{x:118,z:-268,name:'남쪽 들판'},{x:-278,z:-34,name:'서쪽 변경'}
+];
+let lastStartIndex=-1;
+try{lastStartIndex=Number(sessionStorage.getItem('slowSafariStartIndex')??-1);}catch{}
+function chooseStartPoint(){
+ const available=startPointCandidates.map((point,index)=>({...point,index})).filter(point=>canWalk(point.x,point.z)&&!treeLocations.some(tree=>Math.hypot(tree.x-point.x,tree.z-point.z)<3.6));
+ const choices=available.filter(point=>point.index!==lastStartIndex),pool=choices.length?choices:available;
+ const chosen=pool[Math.floor(Math.random()*pool.length)]||{...startPointCandidates[0],index:0};
+ lastStartIndex=chosen.index;try{sessionStorage.setItem('slowSafariStartIndex',String(lastStartIndex));}catch{}
+ return chosen;
+}
+const firstStart=chooseStartPoint();
+let currentStartName=firstStart.name;
+let player=animal('giraffe',firstStart.x,firstStart.z);player.rotation.y=Math.atan2(-firstStart.x,-firstStart.z);
 const npcs=[];for(let i=0;i<7;i++){const coords=[[-3,-1],[9,-10],[-8,6],[13,4],[-13,-14],[6,-18],[20,-5]][i];const a=animal(types[i%3],...coords);a.rotation.y=rand()*Math.PI*2;a.userData.target=new THREE.Vector3(a.position.x,0,a.position.z);a.userData.timer=i*.8;a.userData.isRest=i===4;npcs.push(a);}
 const birdMat=M(0x67765b);const birds=[];for(let i=0;i<5;i++){const b=new THREE.Group();scene.add(b);for(const side of [-1,1]){const wing=mesh(new THREE.ConeGeometry(.19,.85,3),birdMat,b,[side*.32,0,0]);wing.rotation.z=side*1.1;wing.scale.z=.15;}birds.push(b);}
 // Small friends pause, nibble and explore close to their own patch of grass.
@@ -716,20 +733,41 @@ Object.keys(newAnimals).forEach((type,i)=>{
  data.home={x:home[0],z:home[1]};data.target=new THREE.Vector3(home[0],0,home[1]);data.timer=3+i*.8;
  npcs.push(animal);
 });
-for(const [i,home] of [[-200,-220],[225,-180],[-260,100],[210,215],[-130,290],[120,-285],[290,40],[-300,-65]].entries()){
- for(let j=0;j<2;j++){
-  const type=types[(i*2+j)%types.length],x=home[0]+j*6,z=home[1];if(!canWalk(x,z))continue;
-  const a=newAnimals[type]?newAnimal(type,x,z):animal(type,x,z),d=a.userData;
-  d.home={x,z};d.target=new THREE.Vector3(x,0,z);d.timer=3+i;d.wilderness=true;npcs.push(a);
+const distributedHomes=[];
+function findWildlifeHome(cx,cz,spacing=7){
+ for(let attempt=0;attempt<36;attempt++){
+  const angle=attempt*2.39996,radius=attempt?4+Math.sqrt(attempt)*3.3:0;
+  const x=THREE.MathUtils.clamp(cx+Math.cos(angle)*radius,-worldLimit+14,worldLimit-14),z=THREE.MathUtils.clamp(cz+Math.sin(angle)*radius,-worldLimit+14,worldLimit-14);
+  if(!canWalk(x,z)||distributedHomes.some(home=>Math.hypot(home.x-x,home.z-z)<spacing))continue;
+  distributedHomes.push({x,z});return {x,z};
  }
+ return null;
+}
+// One resident in every broad map sector, with a companion in alternating
+// sectors. Only nearby animals are animated and rendered in the frame loop.
+const wildlifeAxis=[-285,-170,-55,60,175,290];
+let regionIndex=0;
+for(const z of wildlifeAxis)for(const x of wildlifeAxis){
+ const type=types[(regionIndex*5+Math.floor(regionIndex/6)*3)%types.length],count=regionIndex%2?1:2;
+ for(let companion=0;companion<count;companion++){
+  const home=findWildlifeHome(x+(companion?6:-2),z+(companion?3:0));if(!home)continue;
+  const resident=newAnimals[type]?newAnimal(type,home.x,home.z):animal(type,home.x,home.z),data=resident.userData;
+  data.home={x:home.x,z:home.z};data.target=new THREE.Vector3(home.x,0,home.z);data.timer=2+(regionIndex%7)+companion*1.7;data.wilderness=true;data.region=regionIndex;
+  resident.rotation.y=(regionIndex*.83+companion*Math.PI)%(Math.PI*2);npcs.push(resident);
+ }
+ regionIndex++;
 }
 const critters=[];
-[[-1,5],[1,7],[-6,10],[10,3],[14,-11],[-11,-5]].forEach(([x,z],i)=>critters.push(smallAnimal('rabbit',x,z,i)));
-[[-10,-7],[-14,-11],[16,-14],[22,8]].forEach(([x,z],i)=>critters.push(smallAnimal('squirrel',x,z,i)));
+const critterRegions=[[-1,6],[-145,-210],[198,-232],[-248,132],[235,176],[-86,274],[290,-48],[-275,-265],[-18,184],[162,26],[-176,38],[72,-178]];
+critterRegions.forEach(([cx,cz],i)=>{
+ const home=findWildlifeHome(cx,cz,4);if(!home)return;
+ critters.push(smallAnimal(i%3?'rabbit':'squirrel',home.x,home.z,i));
+});
 $('friendCount').textContent=npcs.length+critters.length;
 function animateCritters(dt,t,playerMoving=false){
  for(const a of critters){
   const d=a.userData,playerDistance=Math.hypot(a.position.x-player.position.x,a.position.z-player.position.z);d.timer-=dt;
+  a.visible=playerDistance<115;if(!a.visible)continue;
   const rainShelter=weather.rain>.28,night=lightTarget.phase==='night';
   if(playerMoving&&playerDistance<4.8){
    const dx=a.position.x-player.position.x,dz=a.position.z-player.position.z,length=Math.max(.1,Math.hypot(dx,dz));
@@ -899,7 +937,7 @@ function beginSpeciesAction(){
 $('speciesAction').onclick=beginSpeciesAction;
 let speciesActionElapsed=0;
 function setMode(m){if(m==='special')speciesActionElapsed=0;lastGroundTap=null;mode=m;syncSpeciesAction();$('graze').classList.toggle('active',m==='graze');$('graze').setAttribute('aria-pressed',m==='graze');$('graze').querySelector('span').textContent=m==='graze'?'그만 먹기':'풀 뜯기';$('rest').classList.toggle('active',m==='rest');$('rest').querySelector('span').textContent=m==='rest'?'일어나기':'쉬어가기';$('drink').classList.toggle('active',m==='drink'||m==='toWater');$('drink').querySelector('span').textContent=m==='toWater'?'물가로 가는 중':m==='drink'?'다 마셨어요':'물 마시기';}
-function randomBirth(){registerActivity();keys.clear();autoTarget=null;route=[];setMode('walk');const type=types[Math.floor(Math.random()*types.length)];scene.add(fruit);fruit.visible=false;scene.remove(player);disposeAnimal(player);player=animal(type,6,6);syncSpeciesAction();player.rotation.y=-.8;$('animalIcon').innerHTML=animalSVG(type);$('revealIcon').innerHTML=animalSVG(type);$('animalName').textContent=(info[type]?.name||species[type]);$('playerSpecies').textContent=species[type];$('revealSpecies').textContent=species[type];$('revealCopy').innerHTML=(info[type]?.copy||'느린 초원을 천천히 걸어보세요.');$('birthDialog').showModal();}
+function randomBirth(){registerActivity();keys.clear();autoTarget=null;route=[];setMode('walk');const type=types[Math.floor(Math.random()*types.length)],spawn=chooseStartPoint();scene.add(fruit);fruit.visible=false;scene.remove(player);disposeAnimal(player);player=animal(type,spawn.x,spawn.z);currentStartName=spawn.name;syncSpeciesAction();player.rotation.y=Math.atan2(-spawn.x,-spawn.z);$('animalIcon').innerHTML=animalSVG(type);$('revealIcon').innerHTML=animalSVG(type);$('animalName').textContent=(info[type]?.name||species[type]);$('playerSpecies').textContent=species[type];$('revealSpecies').textContent=species[type];$('revealCopy').innerHTML=(info[type]?.copy||'느린 초원을 천천히 걸어보세요.');$('birthDialog').showModal();}
 function disposeAnimal(a){a.userData.skin?.skeleton.dispose();a.traverse(o=>{if(o.isMesh){if(o.geometry!==foliage&&o.geometry!==box&&o.geometry!==ico&&o.geometry!==sphere&&o.geometry!==nibbleBlade&&o.geometry!==animalShape)o.geometry.dispose();}});}
 $('birth').onclick=randomBirth;$('rebirth').onclick=randomBirth;
 let meadowConnected=false;
@@ -979,7 +1017,7 @@ function placeMeadowTags(){
   }
  }
 }
-$('begin').onclick=()=>{$('birthDialog').close();playing=true;joinMeadow();resetView();document.body.classList.add('playing');$('welcome').inert=true;$('welcome').setAttribute('aria-hidden','true');$('gameUI').hidden=false;registerActivity();toast('반가워요. 서두르지 않아도 괜찮아요.');};
+$('begin').onclick=()=>{$('birthDialog').close();playing=true;joinMeadow();resetView();document.body.classList.add('playing');$('welcome').inert=true;$('welcome').setAttribute('aria-hidden','true');$('gameUI').hidden=false;registerActivity();toast(`${currentStartName}에서 천천히 시작해요.`);};
 $('birthDialog').addEventListener('cancel',e=>{e.preventDefault();$('begin').click();});
 $('graze').onclick=()=>{
  registerActivity();autoTarget=null;route=[];setMode(mode==='graze'?'walk':'graze');
