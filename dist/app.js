@@ -151,23 +151,59 @@ for(const water of smallPonds){
  flatShape(water.rx*1.14,water.rz*1.14,30,mat.sand,water.x,water.z,-.065,.06);
  flatShape(water.rx,water.rz,30,waterMat,water.x,water.z,.035,.06);
 }
-const cliffStone=M(0x818578,{map:stoneTexture,bumpMap:stoneTexture,bumpScale:.22}),cliffLight=M(0xa1a18b,{map:stoneTexture,bumpMap:stoneTexture,bumpScale:.22});
+const cliffStone=M(0x818578,{map:stoneTexture,bumpMap:stoneTexture,bumpScale:.22,flatShading:true}),cliffLight=M(0xa1a18b,{map:stoneTexture,bumpMap:stoneTexture,bumpScale:.22,flatShading:true});
 finishLandscape(cliffStone,true);finishLandscape(cliffLight,true);
 const cliffGroup=new THREE.Group();cliffGroup.name='waterfall-cliff';scene.add(cliffGroup);
-// The central shelf reaches the lip. Taller rock shoulders frame its feeder pool.
-mesh(box,cliffStone,cliffGroup,[falls.x,8.25,falls.z-8],[11,19.5,16]);
-for(let side of [-1,1]){
+// Build one continuous, tapered escarpment instead of overlapping giant spheres.
+// Its irregular seven-sided columns read as layered bedrock from both the lake and upstream.
+function cliffColumnGeometry(variant){
+ const geometry=new THREE.CylinderGeometry(.72,1,1,7,3,false),positions=geometry.attributes.position;
+ for(let i=0;i<positions.count;i++){
+  const x=positions.getX(i),y=positions.getY(i)+.5,z=positions.getZ(i),angle=Math.atan2(z,x);
+  if(Math.hypot(x,z)>.05){
+   const rough=1+Math.sin(angle*(3+variant%3)+variant*1.73)*.055+Math.sin(y*11+variant)*.035;
+   positions.setX(i,x*rough+(variant-2)*.018*y);
+   positions.setZ(i,z*rough+Math.sin(variant*2.1)*.035*y);
+  }
+ }
+ geometry.translate(0,.5,0);geometry.computeVertexNormals();return geometry;
+}
+const cliffColumns=[0,1,2,3,4].map(cliffColumnGeometry);let cliffColumnIndex=0;
+function cliffPillar(x,z,width,tall,depth,material=cliffStone,turn=0){
+ const rock=mesh(cliffColumns[cliffColumnIndex++%cliffColumns.length],material,cliffGroup,[x,groundHeight(x,z)-.15,z],[width,tall,depth]);
+ rock.rotation.y=turn;return rock;
+}
+// A broken central wall supports the waterfall lip without exposing a rectangular block behind it.
+cliffPillar(falls.x,falls.z-6,6.1,20.4,6.8,cliffStone,.03);
+cliffPillar(falls.x-4.5,falls.z-6.8,5.2,19.2,7.2,cliffLight,-.08);
+cliffPillar(falls.x+4.6,falls.z-6.5,5.4,19.8,7.1,cliffStone,.1);
+// Stepped shoulders descend into the surrounding ground and form a natural ridgeline.
+for(const side of [-1,1]){
  for(let i=0;i<8;i++){
-  const x=falls.x+side*(7+i*3.2),z=falls.z-5-i*.78;
-  const h=17+Math.sin(i*.8+side)*4;
-  mesh(sphere,i%2?cliffStone:cliffLight,cliffGroup,[x,h*.39,z],[4.8,h*.68,7]);
-  mesh(sphere,cliffStone,cliffGroup,[x,h*.19,z+3],[4,h*.36,5]);
+  const spread=7.7+i*3.35,x=falls.x+side*spread,z=falls.z-6.2-i*.9;
+  const tall=19.3-i*1.12+Math.sin(i*1.37+side)*1.25;
+  cliffPillar(x,z,4.6+(i%3)*.35,tall,6.6-(i%2)*.45,i%2?cliffLight:cliffStone,side*(.07+i*.025));
+  if(i>1)cliffPillar(x-side*1.15,z+4.1,3.8,tall*.48,4.5,cliffStone,side*.12);
  }
 }
-mesh(sphere,cliffStone,cliffGroup,[falls.x,12,falls.z-17],[14,9,9]);
-const feeder=new THREE.PlaneGeometry(falls.width,12);
+// Low rear buttresses hide the seam at ground level and gently enclose the upstream channel.
+for(let i=-4;i<=4;i++){
+ const x=falls.x+i*4.25,z=falls.z-18.2-Math.abs(i)*.38;
+ cliffPillar(x,z,4.1,8.8+Math.cos(i*.9)*2.2,5.2,i%2?cliffLight:cliffStone,i*.035);
+}
+for(const side of [-1,1])for(let i=0;i<5;i++){
+ const x=falls.x+side*(5.1+i*.55),z=falls.z-9.5-i*3.05;
+ cliffPillar(x,z,2.7,6.2-i*.35,3.5,i%2?cliffStone:cliffLight,side*.14);
+}
+// Small fallen fragments soften the foot of the cliff without blocking the view like boulders did.
+for(let i=0;i<18;i++){
+ const side=i%2?-1:1,x=falls.x+side*(8+(i%9)*3.1),z=falls.z+1.4+(i%3)*1.35;
+ const s=.65+(i%4)*.16,rock=mesh(ico,i%3?cliffStone:cliffLight,cliffGroup,[x,groundHeight(x,z)+s*.55,z],[s,s*.9,s*.72]);
+ rock.rotation.set(i*.13,i*.47,i*.07);
+}
+const feeder=new THREE.PlaneGeometry(falls.width+1.1,15.5);
 feeder.rotateX(-Math.PI/2);
-mesh(feeder,waterMat,scene,[falls.x,falls.top,falls.z-6]);
+mesh(feeder,waterMat,scene,[falls.x,falls.top,falls.z-7.75]);
 const rippleMaterial=new THREE.MeshBasicMaterial({color:0xd8e9cb,transparent:true,opacity:.35,side:THREE.DoubleSide,depthWrite:false});
 const ripples=[];for(let i=0;i<4;i++){const r=mesh(new THREE.RingGeometry(.9, .92,42),rippleMaterial,scene,[3+Math.cos(i*3)*1.8,.05,-5+Math.sin(i)*1.3]);r.rotation.x=-Math.PI/2;r.scale.y=.5;r.userData.phase=i;r.userData.keepSeparate=true; ripples.push(r);}
 for(let i=0;i<10;i++){const a=i*2.39996,r=9+(i%3)*7;const wave=mesh(new THREE.RingGeometry(1.3,1.34,32),rippleMaterial,scene,[lake.x+Math.cos(a)*r,.07,lake.z+Math.sin(a)*r*.65]);wave.rotation.x=-Math.PI/2;wave.userData.lake=true;wave.userData.keepSeparate=true;ripples.push(wave);}
