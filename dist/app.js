@@ -986,7 +986,7 @@ function joinMeadow(){
    return {species:d.type,x:player.position.x,z:player.position.z,yaw,motion};
   },
   onPlayers:receiveMeadowPlayers,
-  onStatus:text=>{$('meadowStatus').textContent=text;}
+  onStatus:()=>{}
  });
 }
 function animateMeadowPeers(dt,t){
