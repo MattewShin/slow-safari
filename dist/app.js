@@ -873,7 +873,7 @@ function animalSVG(type){
  const giraffe=type==='giraffe',zebra=type==='zebra';const fill=giraffe?'#cba65f':zebra?'#e5dfcc':'#bb9868';return `<svg viewBox="0 0 100 100" fill="none" aria-hidden="true"><path d="M25 65 23 87h7l6-22m19 0 3 22h6l-1-26" fill="${fill}"/><path d="m29 42-8 5-3 16 8 3" stroke="#7d805e" stroke-width="2" stroke-linecap="round"/><path d="M29 45c-13 3-13 20 1 22h28c13-1 13-19-1-22Z" fill="${fill}"/><path d="${giraffe?'m54 54 5-39 9 1 3 38':'m54 52 5-22 11 2 1 23'}" fill="${fill}"/><path d="${giraffe?'M58 15c-3-9 16-8 18-2l10 4-2 7-24-2Z':'M59 30c-3-9 16-9 18-2l9 7-4 8-22-6Z'}" fill="${fill}"/><path d="${giraffe?'m63 10-2-6m9 6 1-6':zebra?'m62 26-1-8 5 7m4 1 3-8 1 10':'m63 24-2-15m10 16 3-16'}" stroke="#6c6248" stroke-width="3" stroke-linecap="round"/><circle cx="${giraffe?74:75}" cy="${giraffe?16:32}" r="1.8" fill="#414d36"/>${giraffe?'<path d="m32 48 5 2-1 6-6-1m14-7 6 2-1 5-7-1m-2 5 6 2-1 5-6-1m20-44 5 1-1 6-5-1m0 6 5 2-1 6-5-1" fill="#977544"/>':zebra?'<path d="m27 46 4 20m5-21 4 22m6-22 4 22m6-20 4 18m2-28 9 3m-10 2 9 3" stroke="#646653" stroke-width="3"/>':'<path d="M26 58h33" stroke="#756644" stroke-width="3"/>'}</svg>`;
 }
 let lastGroundTap=null;
-let playing=false,mode='walk',overview=false,angle=0,viewPitch=.64,viewZoom=1,autoTarget=null,route=[];const keys=new Set();const idleViewDelay=15;let idleElapsed=0;let toastTimer;
+let playing=false,mode='walk',overview=false,angle=0,viewPitch=.64,viewZoom=1,autoTarget=null,route=[];const keys=new Set();const idleViewDelay=15;let idleElapsed=0,idleLookPhase=0,idleBaseYaw=0;let toastTimer;
 function toast(text){$('toast').textContent=text;$('toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.remove('visible'),3400);}
 const speciesActions={
  giraffe:{label:'잎 먹기',active:'그만 먹기',message:'나뭇잎을 천천히 씹어요.'},
@@ -1288,16 +1288,20 @@ function noiseLayer({frequency,type='lowpass',duration,texture,pan=0}){
  const buffer=audioCtx.createBuffer(2,audioCtx.sampleRate*duration,audioCtx.sampleRate);
  for(let channel=0;channel<2;channel++){
   const samples=buffer.getChannelData(channel);
-  let pink=0,brown=0;
+  let pink=0,brown=0,air=.64+Math.random()*.18,airTarget=.64+Math.random()*.18,hold=0;
   for(let i=0;i<samples.length;i++){
-   const time=i/samples.length*Math.PI*2;
    const white=Math.random()*2-1;
    pink=.78*pink+.22*white;
    brown=.987*brown+.013*white;
-   const swell=.72+.15*Math.sin(time*3+channel)+.11*Math.cos(time*7+channel*.5);
-   const grains=.68+.22*Math.sin(time*17+channel)*Math.sin(time*29);
-   const signal=texture==='wind'?brown*3+pink*.15:texture==='leaves'?pink*.65+white*.21:texture==='rain'?white*.46+pink*.38:pink*.8+white*.4;
-   samples[i]=signal*swell*(texture==='leaves'?grains:1);
+   if(hold--<=0){airTarget=.54+Math.random()*.38;hold=audioCtx.sampleRate*(.7+Math.random()*3.8);}
+   air+=(airTarget-air)*(texture==='wind'?.000025:.00007);
+   const leafTexture=.58+Math.min(.42,Math.abs(pink)*.5);
+   const signal=texture==='wind'?brown*3.15+pink*.12:
+    texture==='leaves'?(pink*.58+white*.16)*leafTexture:
+    texture==='rain'?white*.46+pink*.38:
+    texture==='falls'?pink*.74+white*.40:
+    brown*.82+pink*.31+white*.055;
+   samples[i]=signal*air;
   }
  }
  const source=audioCtx.createBufferSource();
@@ -1315,23 +1319,27 @@ function noiseLayer({frequency,type='lowpass',duration,texture,pan=0}){
  source.start();
  return {gain,stereo};
 }
-let lastAudioUpdate=-Infinity;
+let lastAudioUpdate=-Infinity,windLevel=.72,windTarget=.72,nextWindShift=0;
 function updateLocationAudio(){
  if(!audioOn||!audioCtx||audioCtx.currentTime-lastAudioUpdate<.15)return;
  const now=audioCtx.currentTime;
+ const elapsed=Number.isFinite(lastAudioUpdate)?Math.min(.75,now-lastAudioUpdate):.15;
  lastAudioUpdate=now;
  const {x,z}=player.position;
  const clamp01=value=>THREE.MathUtils.clamp(value,0,1);
- const waterfall=clamp01(1-Math.hypot(x-falls.x,z-falls.z)/46);
+ // The falling-water layer belongs only to the cliff basin. Ordinary lake and
+ // pond shores use the much softer shoreline layer below.
+ const waterfall=clamp01(1-Math.hypot(x-falls.x,z-falls.z)/24);
  const shore=clamp01(1-(nearestWaterDistance(x,z)-1)/.7);
  const river=clamp01(1-(riverDistance(x,z)-3)/12);
  const forest=groves.reduce((value,g)=>Math.max(value,clamp01(1-Math.hypot(x-g.x,z-g.z)/19)),0);
  const night=lightTarget.phase==='night';
- const gust=.79+.15*Math.sin(now*.43)+.06*Math.sin(now*1.7);
- ambience.wind.gain.gain.setTargetAtTime((night?.47:.71)*gust*(1-forest*.35),now,.55);
- ambience.leaves.gain.gain.setTargetAtTime((.08+forest*.40)*gust,now,.45);
- ambience.stream.gain.gain.setTargetAtTime(Math.max(shore*.37,river*.46)*(1-waterfall*.5),now,.45);
- ambience.falls.gain.gain.setTargetAtTime(waterfall**1.55*.65,now,.45);
+ if(now>=nextWindShift){windTarget=.54+Math.random()*.36;nextWindShift=now+4+Math.random()*11;}
+ windLevel+=(windTarget-windLevel)*(1-Math.exp(-elapsed*.24));
+ ambience.wind.gain.gain.setTargetAtTime((night?.43:.64)*windLevel*(1-forest*.38),now,1.6);
+ ambience.leaves.gain.gain.setTargetAtTime((.055+forest*.31)*(.72+windLevel*.28),now,1.25);
+ ambience.stream.gain.gain.setTargetAtTime(Math.max(shore*.16,river*.31)*(1-waterfall*.7),now,.9);
+ ambience.falls.gain.gain.setTargetAtTime(waterfall**1.8*.58,now,.55);
  ambience.rain.gain.gain.setTargetAtTime(weather.rain*(.38+forest*.16),now,.38);
  if(ambience.falls.stereo){
   const dx=falls.x-x,dz=falls.z-z;
@@ -1346,11 +1354,11 @@ async function toggleAudio(){
    audioGain=audioCtx.createGain();
    audioGain.gain.value=0;
    audioGain.connect(audioCtx.destination);
-   ambience.wind=noiseLayer({frequency:330,duration:13,texture:'wind'});
-   ambience.leaves=noiseLayer({frequency:1700,type:'bandpass',duration:11,texture:'leaves',pan:-.20});
-   ambience.stream=noiseLayer({frequency:1150,type:'bandpass',duration:17,texture:'water',pan:.14});
-   ambience.falls=noiseLayer({frequency:1550,duration:19,texture:'water'});
-   ambience.rain=noiseLayer({frequency:4200,type:'lowpass',duration:14,texture:'rain',pan:-.06});
+   ambience.wind=noiseLayer({frequency:300,duration:31,texture:'wind'});
+   ambience.leaves=noiseLayer({frequency:1850,type:'bandpass',duration:23,texture:'leaves',pan:-.20});
+   ambience.stream=noiseLayer({frequency:980,type:'bandpass',duration:19,texture:'water',pan:.14});
+   ambience.falls=noiseLayer({frequency:1650,duration:27,texture:'falls'});
+   ambience.rain=noiseLayer({frequency:4200,type:'lowpass',duration:17,texture:'rain',pan:-.06});
   }
   await audioCtx.resume();
   audioOn=!audioOn;
@@ -1456,11 +1464,13 @@ $('sound').onclick=toggleAudio;$('audioToggle').onclick=toggleAudio;
 const movementCodes=['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight'];window.addEventListener('keydown',e=>{if(!playing||$('settingsDialog').open||$('birthDialog').open)return;if(movementCodes.includes(e.code)){e.preventDefault();registerActivity();keys.add(e.code);}});window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>{keys.clear();});
 // One background finger or mouse drag rotates freely; two fingers change distance.
 const viewPointers=new Map();let pinchDistance=0;
-function registerActivity(){idleElapsed=0;overview=false;}
+function registerActivity(){idleElapsed=0;idleLookPhase=0;overview=false;}
 function updateIdleView(dt,blocked){
  if(!playing||blocked||document.hidden||autoTarget||keys.size||viewPointers.size){registerActivity();return;}
  idleElapsed=Math.min(idleElapsed+dt,idleViewDelay);
- overview=idleElapsed>=idleViewDelay;
+ const wasIdle=overview;overview=idleElapsed>=idleViewDelay;
+ if(overview&&!wasIdle){idleBaseYaw=player.rotation.y;idleLookPhase=0;}
+ if(overview)idleLookPhase+=dt;
 }
 document.addEventListener('pointerdown',registerActivity,{passive:true});
 document.addEventListener('keydown',registerActivity);
@@ -1612,7 +1622,7 @@ function moveToGroundPoint(point,running=false){
  moveMarker.position.set(point.x,height(point.x,point.z)+.075,point.z);moveMarker.material.color.setHex(running?0xffcb89:0xfff4d5);moveMarker.visible=true;$('moveHint').style.opacity=0;return true;
 }
 function lineWalk(a,b){const distance=Math.hypot(b.x-a.x,b.z-a.z),steps=Math.max(1,Math.ceil(distance/.2));for(let i=0;i<=steps;i++){const f=i/steps;if(!canWalk(a.x+(b.x-a.x)*f,a.z+(b.z-a.z)*f))return false;}return true;}
-const clock=new THREE.Clock();let total=0;const desiredCam=new THREE.Vector3(),lookTarget=new THREE.Vector3(),currentLook=new THREE.Vector3(-3,1,0),toProject=new THREE.Vector3();
+const clock=new THREE.Clock();let total=0;const desiredCam=new THREE.Vector3(),lookTarget=new THREE.Vector3(),currentLook=new THREE.Vector3(-3,1,0),toProject=new THREE.Vector3(),idleHeadPosition=new THREE.Vector3(),idleForward=new THREE.Vector3();
 function updateGait(a,dt,moving){
  const d=a.userData,travel=Math.min(.25,a.position.distanceTo(d.lastPosition));d.lastPosition.copy(a.position);
  d.runBlend=THREE.MathUtils.damp(d.runBlend||0,moving&&d.running?1:0,7,dt);
@@ -1828,20 +1838,32 @@ function frame(){requestAnimationFrame(frame);const dt=Math.min(clock.getDelta()
  birds.forEach((b,i)=>{const a=t*.045+i*1.25;b.visible=lightTarget.phase!=='night'&&weather.rain<.72;b.position.set(player.position.x+Math.cos(a)*27,12+height(player.position.x,player.position.z)+Math.sin(a*2+i)*2,player.position.z+Math.sin(a)*24-14);b.rotation.y=-a;b.children.forEach((w,j)=>w.rotation.z=(j?1:-1)*(1.1+Math.sin(t*3+i)*.3));});
  ripples.forEach((r,i)=>{const s=(r.userData.lake?1.6:1)+((t*.13+i*.27)%1)*(r.userData.lake?2.5:2);r.scale.set(s,s*.58,1);});
  if(playing){
-  const view=playerView(player),pitch=overview?.8:viewPitch,radius=view.radius*viewZoom*(overview?1.9:1);
-  const eye=view.eye,horizontal=radius*Math.cos(Math.max(0,pitch));
-  desiredCam.set(player.position.x+Math.sin(angle)*horizontal,player.position.y+eye+radius*Math.sin(Math.max(0,pitch)),player.position.z+Math.cos(angle)*horizontal);
-  // Keep the camera above the terrain even while tilting toward the sky.
-  desiredCam.y=Math.max(desiredCam.y,height(desiredCam.x,desiredCam.z)+1.1);
-  const ahead=THREE.MathUtils.clamp((.5-pitch)*12,0,12),skyLift=Math.tan(Math.max(0,-pitch))*(horizontal+ahead);
-  lookTarget.set(player.position.x-Math.sin(angle)*ahead,player.position.y+eye+skyLift,player.position.z-Math.cos(angle)*ahead);
+  const view=playerView(player);
+  if(overview){
+   // Settle into the animal's eye line and slowly scan the horizon. Keeping the
+   // camera just ahead of the head prevents the animal mesh blocking the view.
+   const yaw=idleBaseYaw+Math.sin(idleLookPhase*.13)*.72;
+   idleForward.set(Math.sin(yaw),0,Math.cos(yaw));
+   player.userData.head.getWorldPosition(idleHeadPosition);
+   const noseOffset=THREE.MathUtils.clamp(view.eye*.13,.16,.62);
+   desiredCam.copy(idleHeadPosition).addScaledVector(idleForward,noseOffset);desiredCam.y+=Math.max(.04,view.eye*.025);
+   desiredCam.y=Math.max(desiredCam.y,height(desiredCam.x,desiredCam.z)+.34);
+   lookTarget.copy(desiredCam).addScaledVector(idleForward,54);lookTarget.y+=7.5;
+  }else{
+   const pitch=viewPitch,radius=view.radius*viewZoom,horizontal=radius*Math.cos(Math.max(0,pitch));
+   desiredCam.set(player.position.x+Math.sin(angle)*horizontal,player.position.y+view.eye+radius*Math.sin(Math.max(0,pitch)),player.position.z+Math.cos(angle)*horizontal);
+   // Keep the camera above the terrain even while tilting toward the sky.
+   desiredCam.y=Math.max(desiredCam.y,height(desiredCam.x,desiredCam.z)+1.1);
+   const ahead=THREE.MathUtils.clamp((.5-pitch)*12,0,12),skyLift=Math.tan(Math.max(0,-pitch))*(horizontal+ahead);
+   lookTarget.set(player.position.x-Math.sin(angle)*ahead,player.position.y+view.eye+skyLift,player.position.z-Math.cos(angle)*ahead);
+  }
  }else{desiredCam.set(mobile()?25:27,mobile()?23:20,mobile()?35:31);lookTarget.set(mobile()?0:-7,mobile()?2:1,0);}
  camera.position.lerp(desiredCam,1-Math.exp(-dt*2.1));if(playing)camera.position.y=Math.max(camera.position.y,height(camera.position.x,camera.position.z)+.9);currentLook.lerp(lookTarget,1-Math.exp(-dt*2.7));camera.lookAt(currentLook);skyDome.position.copy(camera.position);forest.update(camera.position.x,camera.position.z,lightGraphics);discoveries.update(camera.position.x,camera.position.z,lightGraphics);grassField.update(camera.position.x,camera.position.z,lightGraphics);
  treeSight.focus.value.copy(player.position);
  const playerEye=playerView(player).eye;
  treeSight.focus.value.y+=playerEye;
  treeSight.radius.value=playing?Math.max(1.35,playerEye*.9):0;
- if(playing){toProject.copy(player.position);toProject.y+=playerView(player).tag;toProject.project(camera);$('playerTag').style.display=toProject.z>-1&&toProject.z<1&&Math.abs(toProject.x)<1.05&&Math.abs(toProject.y)<1.05?'':'none';$('playerTag').style.left=`${(toProject.x*.5+.5)*innerWidth}px`;$('playerTag').style.top=`${(-toProject.y*.5+.5)*innerHeight-8}px`;}
+ if(playing){toProject.copy(player.position);toProject.y+=playerView(player).tag;toProject.project(camera);$('playerTag').style.display=!overview&&toProject.z>-1&&toProject.z<1&&Math.abs(toProject.x)<1.05&&Math.abs(toProject.y)<1.05?'':'none';$('playerTag').style.left=`${(toProject.x*.5+.5)*innerWidth}px`;$('playerTag').style.top=`${(-toProject.y*.5+.5)*innerHeight-8}px`;}
 
  placeMeadowTags();
  updateLocationAudio();
